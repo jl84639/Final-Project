@@ -1,0 +1,634 @@
+---
+title: "Data Mining Final Project The Dollars and Sense of Staying in NYC: Predicting Airbnb Prices"
+author: "Jinming Li, Ye Fan, Xiangmeng Qin"
+date: "4/26/2024"
+output: html_document
+---
+
+## Abstract: 
+Our report investigates the factors influencing Airbnb rental prices and neighborhood classification in New York City. Utilizing a dataset from 2019, we applied various statistical and machine learning methods, including Ordinary Least Squares (OLS) regression, backward selection, LASSO, and Classification and Regression Trees (CART), to identify the relationships between rental attributes and pricing. Our findings indicated that lower-priced listings are predicted with greater accuracy, while predictions for higher-priced listings were less precise. The models also revealed key attributes such as room type, location, accommodation size, and availability as significant in determining price. 
+
+## Introduction: 
+
+### Background
+Airbnb has changed the way people stay in New York City, offering a variety of places to rent. In 2019, a dataset was shared that lists many details about these rentals, like how much they cost, where they are, and what kind of place they offer. Understanding these details is important for people who rent out their homes to make better decisions and for city officials who make rules about housing.
+### Purpose of Analysis
+This study has two main goals. The first is to figure out what makes some Airbnb places cost more or less than others. We think that where the place is located and what type of place it is (like an entire house or just a room) are important factors. The second goal is to see if we can guess which neighborhood an Airbnb is in based on things like its price and what it offers. This information can help hosts set fair prices and help travelers choose where to stay.
+### Method of Analysis
+We picked different ways to study the Airbnb data to make sense of it more easily. These methods are like different tools in a toolbox—each one does something special. We use things like OLS regression, backward selection, LASSO, and CART models to spot trends and see how the features of an Airbnb, like how many rooms it has or where it is, affect its price. We make sure each tool works right by trying them out a lot. By looking at how different methods work and what they tell us, we figure out the key things that change an Airbnb's price and its spot in the city.
+
+## Methods: 
+### Data Set Description
+Our data comes from a comprehensive collection of Airbnb listings in New York City for the year 2019. The dataset includes a variety of information on each listing, such as price, location, type of room offered, and several other details that guests might consider when choosing a place to stay. Specifically, the dataset covers factors like how many people a place can accommodate, the number of bedrooms and bathrooms, the kind of amenities provided, and user ratings. These details will help us explore and understand the trends and factors that influence Airbnb pricing and neighborhood classification in New York City.
+
+### Analytical Methods
+To analyze this data, we will use several statistical and machine learning methods:
+Descriptive Statistics and Visualization: We will start by summarizing the data using descriptive statistics and visualizations to understand the central tendencies, dispersion, and distribution of our main variables.
+Ordinary Least Squares (OLS) Regression: This method will help us understand the relationship between the price of listings and other variables by estimating the extent to which different factors like location or room type affect the price.
+Backward Selection: We'll use backward selection in our regression model to identify which variables are most important. This process starts with all variables and removes the least significant ones step by step to improve the model's performance.
+LASSO (Least Absolute Shrinkage and Selection Operator): This technique is particularly useful when we have many variables. It helps to both improve the prediction accuracy and interpretability of the statistical model we develop by selecting only a subset of the provided features.
+Classification and Regression Trees (CART): For the classification task of predicting neighborhoods, CART will be used. It's a decision tree algorithm that will allow us to classify listings into neighborhoods based on their characteristics.
+For all models, we will employ cross-validation to ensure that our findings are robust and not merely tailored to a specific subset of the data. Additionally, we will compare models based on their predictive accuracy using metrics such as the Mean Absolute Error (MAE) for regression tasks and accuracy rate for classification tasks.
+By applying these methods, we expect to uncover actionable insights that can inform Airbnb hosts on pricing strategies and provide a deeper understanding of the local Airbnb market structure.
+
+```{r 1, message=FALSE, echo=FALSE, warning=FALSE}
+#Load necessary libraries 
+library(caret)
+library(dplyr)
+library(ISLR)
+library(splines)
+library(gam)
+library(stringr)
+library(leaps)
+library(rpart.plot)
+library(tidyverse)
+library(mosaic)
+library(dplyr)
+library(data.table)
+library(rsample)
+library(modelr)
+library(ggplot2)
+library(rpart)
+library(ipred)
+library(caret)
+library(randomForest)
+library(gbm)
+library(pdp)
+library(xgboost)
+library(Metrics)
+library(purrr)
+library(glmnet)
+library(caret)
+```
+
+```{r 2, message=FALSE, echo=FALSE, warning=FALSE}
+# data procession
+airbnb_kaggle <- read.csv("NYC_airbnb_kaggle.csv")
+neighbourhood <- read.csv("NYC_nbhd_kaggle.csv")
+set.seed(253)
+airbnb <- airbnb_kaggle %>%
+  left_join(neighbourhood, c("neighbourhood_cleansed" = "neighbourhood")) %>%
+  filter(price < 1000) %>%
+  sample_n(5000) %>% 
+  select(-id, -host_response_time) %>%
+  mutate(
+    host_response_rate = str_remove_all(host_response_rate, "%"),
+    host_response_rate = ifelse(host_response_rate == "N/A", NA, host_response_rate),
+    host_response_rate = as.numeric(host_response_rate),
+    host_is_superhost = as.logical(toupper(host_is_superhost)),
+    host_has_profile_pic = as.logical(toupper(host_has_profile_pic)),
+    is_location_exact = as.logical(toupper(is_location_exact)),
+    instant_bookable = as.logical(toupper(instant_bookable)),
+    is_business_travel_ready = as.logical(toupper(is_business_travel_ready)),
+    require_guest_profile_picture = as.logical(toupper(require_guest_profile_picture))
+  )
+airbnb_select <- airbnb %>%
+  select(price,property_type,room_type,accommodates,beds,guests_included,minimum_nights,availability_30,bathrooms,bedrooms,review_scores_rating,is_business_travel_ready,cancellation_policy,require_guest_profile_picture,reviews_per_month,neighbourhood_group)
+# Splitting data
+airbnb_select_split = initial_split(airbnb_select, prop = 0.8)
+airbnb_select_train = training(airbnb_select_split)
+airbnb_select_test = testing(airbnb_select_split)
+```
+
+## Results:
+### 1.Linear regression model:
+
+```{r OLS, message=FALSE, echo=FALSE, warning=FALSE}
+#OLS mode:
+lm_mod  <- lm(price~
+                   property_type+
+                   room_type+
+                   accommodates+
+                   beds+
+                   guests_included+
+                   minimum_nights+
+                   availability_30+
+                   bathrooms+
+                   bedrooms+
+                   review_scores_rating+
+                   is_business_travel_ready+
+                   cancellation_policy+
+                   require_guest_profile_picture+
+                   reviews_per_month+
+                   neighbourhood_group, data = airbnb_select_train)
+
+# Predicting price using the linear regression model
+predicted_price_lm <- predict(lm_mod, newdata = airbnb_select_test)
+
+# Create a data frame with actual and predicted values
+results_df <- data.frame(Actual = airbnb_select_test$price, Predicted = predicted_price_lm)
+
+# Plot
+ggplot(results_df, aes(x = Actual, y = Predicted)) +
+  geom_point(color = 'blue', alpha = 0.5) +  # Plot actual vs predicted as points
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = 'red') +  # Perfect predictions line
+  labs(title = "Actual vs. Predicted Price (Linear Regression)", x = "Actual Price", y = "Predicted Price") +
+  theme_minimal()
+plot(lm_mod)
+# Calculate RMSE
+non_na_indices <- !is.na(airbnb_select_test$price) & !is.na(predicted_price_lm)
+rmse_lm <- rmse(airbnb_select_test$price[non_na_indices], predicted_price_lm[non_na_indices])
+# Print RMSE
+cat("RMSE:", rmse_lm, "\n")
+```
+### Actual vs. Predicted Price Plot:
+The first plot compares actual prices to those predicted by the model. The plot shows a dispersion of points around the line, especially as the actual price increases, suggesting that the model predicts lower prices more accurately than higher ones. The points spread out as they move away from the line, indicating the model's predictions are less precise at higher price points.
+### Residuals vs. Fitted Plot
+The residuals plot against fitted values aims to detect non-linearity, unequal error variances, and outliers. Our plot shows a slight curve, suggesting potential non-linearity in the relationship between predictors and price. The residuals also fan out as the fitted values increase, implying an increase in variability of predictions (heteroscedasticity).
+
+### 2. LeapBackward model:
+
+```{r LeapBackward, message=FALSE, echo=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+
+back_step_mod <- train(price~
+                   property_type+
+                   room_type+
+                   accommodates+
+                   beds+
+                   guests_included+
+                   minimum_nights+
+                   availability_30+
+                   bathrooms+
+                   bedrooms+
+                   review_scores_rating+
+                   is_business_travel_ready+
+                   require_guest_profile_picture+
+                   reviews_per_month+
+                   neighbourhood_group,
+    data = airbnb_select,
+    method = "leapBackward",
+    tuneGrid = data.frame(nvmax = 1:13),
+    trControl = trainControl(method = "cv", number = 10),
+    metric = "MAE",
+    na.action = na.omit
+)
+
+# coef calculation
+back_step_mod$results
+back_step_mod$results %>% arrange(MAE)
+back_step_mod$bestTune
+coef(back_step_mod$finalModel, id = back_step_mod$bestTune$nvmax)
+coef(back_step_mod$finalModel, id = 12)
+```
+
+```{r LeapBackward plot, message=FALSE, echo=FALSE, warning=FALSE}
+#plot
+plot(back_step_mod)
+# Predicting price using the backward model
+predicted_price_back <- predict(back_step_mod, newdata = airbnb_select_test)
+
+# Calculate RMSE
+rmse_backward <- rmse(airbnb_select_test$price, predicted_price_back)
+# Print RMSE
+print(rmse_backward)
+```
+The line plot shows a sharp decrease in MAE as more predictors are introduced, from just one predictor to around five. This decrease suggests that the initial variables added significantly improve the model's ability to accurately predict Airbnb prices. As the number of predictors increases beyond five, the MAE reduction becomes more gradual, indicating diminishing returns on adding more variables to the model.
+
+### 3. LASSO model
+
+```{r LASSO, message=FALSE, echo=FALSE, warning=FALSE, include=FALSE}
+set.seed(123)
+lasso_mod1 <- train(price~
+                   property_type+
+                   room_type+
+                   accommodates+
+                   beds+
+                   guests_included+
+                   minimum_nights+
+                   availability_30+
+                   bathrooms+
+                   bedrooms+
+                   review_scores_rating+
+                   is_business_travel_ready+
+                   require_guest_profile_picture+
+                   reviews_per_month+
+                   neighbourhood_group,
+    data = airbnb_select,
+    method = "glmnet",
+    trControl = trainControl(method = "cv", number = 10, selectionFunction = "oneSE"),
+    tuneGrid = data.frame(alpha = 1, lambda = seq(0, 10, length.out = 100)),
+    metric = "MAE",
+    na.action = na.omit
+)
+lasso_mod1$results
+
+plot(lasso_mod1$finalModel, xvar = "lambda", label = TRUE, col = rainbow(20))
+rownames(lasso_mod1$finalModel$beta)
+rownames(lasso_mod1$finalModel$beta)[c(2,4)]
+plot(lasso_mod1$finalModel, xvar = "lambda", label = TRUE, col = rainbow(20), ylim = c(-0.5,1))
+plot(lasso_mod1)
+coef(lasso_mod1$finalModel,id = lasso_mod1$bestTune)
+lasso_mod1$bestTune
+coef(lasso_mod1$finalModel, id = lasso_mod1$bestTune$lambda)
+coef(back_step_mod$finalModel, id = 12)
+back_step_mod$results%>% arrange(MAE)
+coef(lasso_mod1$finalModel, id = 14)
+lasso_mod1$results %>% arrange(MAE)
+```
+
+```{r LASSO plot, message=FALSE, echo=FALSE, warning=FALSE}
+#plot
+plot(lasso_mod1)
+plot(lasso_mod1$finalModel, xvar = "lambda", label = TRUE, col = rainbow(20), ylim = c(-0.5,1))
+# Predicting price using the LASSO model
+predicted_price_lasso <- predict(lasso_mod1, newdata = airbnb_select_test)
+
+# Calculate RMSE
+rmse_lasso <- rmse(airbnb_select_test$price, predicted_price_lasso)
+# Print RMSE
+print(rmse_lasso)
+```
+
+From the graph, we can observe that the MAE decreases as the regularization parameter increases from 0, reaching a minimum around a parameter value of 2, and then starts to increase again. The lowest point represents the optimal trade-off between bias and variance, indicating the most regularized model that still keeps predictive power.
+
+### 4.The CART model:
+
+```{r Cart model, message=FALSE, echo=FALSE, warning=FALSE}
+#Classification and Regression Trees (CART)
+set.seed(123)
+Tree1 = rpart(price ~
+                 property_type +
+                 room_type +
+                 accommodates +
+                 beds +
+                 guests_included +
+                 minimum_nights +
+                 availability_30 +
+                 bathrooms +
+                 bedrooms +
+                 review_scores_rating +
+                 is_business_travel_ready +
+                 require_guest_profile_picture +
+                 reviews_per_month +
+                 neighbourhood_group,
+             data = airbnb_select_test, method = "anova")
+predicted_price_cart <- predict(Tree1, newdata = airbnb_select_test)
+# Plotting
+rpart.plot(Tree1, type = 4, extra = 1)
+ggplot() +
+  geom_point(aes(x = airbnb_select_test$price, y = predicted_price_cart), colour = "blue") +
+  geom_line(aes(x = airbnb_select_test$price, y = airbnb_select_test$price), colour = "red") +
+  labs(x = "Actual Price", y = "Predicted Price", title = "CART Model: Predicted vs Actual Price") +
+  theme_minimal()
+# Calculate RMSE
+non_na_indices <- !is.na(airbnb_select_test$price) & !is.na(predicted_price_cart)
+rmse_cart <- rmse(airbnb_select_test$price[non_na_indices], predicted_price_cart[non_na_indices])
+# Print RMSE
+cat("RMSE:", rmse_cart, "\n")
+print (rmse_cart)
+``` 
+The decision tree diagram displays the hierarchy of features that the CART model used to split the data. It starts with the type of room and then branches out based on other characteristics like the neighborhood group, number of bathrooms, accommodations, and availability over 30 days. The numbers at the top of the nodes indicate the count of listings, and the nodes at the bottom represent the final decision leaves. This tree structure helps us understand the rules the model has learned to predict prices based on listing features.
+The scatter plot below the tree diagram illustrates the relationship between the actual prices and those predicted by the CART model. The points are spread around this line, indicating the variance in the model's predictions. The model seems to perform well for lower-priced listings but less so for higher-priced ones, where it tends to underpredict the price, as seen by many points above the line in the higher price range.
+
+### 5. Backstep model(non-linearity)
+
+```{r Backstep(non-linearity), message=FALSE, echo=FALSE, warning=FALSE, include=FALSE}
+back_step_mod2 <- train(
+    price ~ property_type+
+                  room_type+
+                  ns(accommodates,3)+
+                  beds+
+                  guests_included+
+                  ns(minimum_nights,3)+
+                  availability_30+
+                  ns(bathrooms,3)+ns(bedrooms,3)+
+                  ns(review_scores_rating,3)+
+                  is_business_travel_ready+
+                  cancellation_policy+
+                  require_guest_profile_picture+
+                  ns(reviews_per_month,3)+
+                  neighbourhood_group,
+    data = airbnb_select,
+    method = "leapBackward",
+    tuneGrid = data.frame(nvmax = 1:33),
+    trControl = trainControl(method = "cv", number =10),
+    metric = "MAE",
+    na.action = na.omit
+)
+
+# Predicting price using the new Backstep model
+predicted_price_back_step2 <- predict(back_step_mod2, newdata = airbnb_select_test)
+
+# Calculate RMSE
+rmse_back_step2 <- rmse(airbnb_select_test$price, predicted_price_back_step2)
+```
+
+```{r Backstep(non-linearity) plot, message=FALSE, echo=FALSE, warning=FALSE}
+
+# Print RMSE
+print(rmse_back_step2)
+#plot
+plot(back_step_mod2)
+```
+From the curve, we observe a rapid decrease in MAE as the number of predictors increases initially. This suggests that incorporating additional non-linear transformations of predictors into the model significantly improves predictive accuracy. The MAE drops sharply up to around 10 predictors and then levels off, maintaining a relatively constant MAE despite the addition of more predictors.
+
+### 6. LASSO model(non-linearity)
+
+```{r LASSO(non-linearity), message=FALSE, echo=FALSE, warning=FALSE, include=FALSE}
+set.seed(253)
+lasso_mod2 <- train(data=airbnb_select,
+                price~property_type+
+                  room_type+
+                  ns(accommodates,3)+
+                  beds+
+                  guests_included+
+                  ns(minimum_nights,3)+
+                  availability_30+
+                  ns(bathrooms,3)+ns(bedrooms,3)+
+                  ns(review_scores_rating,3)+
+                  is_business_travel_ready+
+                  cancellation_policy+
+                  require_guest_profile_picture+
+                  ns(reviews_per_month,3)+
+                  neighbourhood_group,
+                method="glmnet",
+                trControl=trainControl(method = "cv", number = 10, selectionFunction = "oneSE"),
+                tuneGrid = data.frame(alpha = 1, lambda = seq(0, 20, length.out = 100)),
+                metric = "MAE",
+                na.action = na.omit)
+
+# Predicting price using the new LASSO model
+predicted_price_lasso2 <- predict(lasso_mod2, newdata = airbnb_select_test)
+# Calculate RMSE
+rmse_lasso2 <- rmse(airbnb_select_test$price, predicted_price_lasso2)
+```
+
+```{r LASSO(non-linearity) plot, message=FALSE, echo=FALSE, warning=FALSE}
+# Print RMSE
+print(rmse_lasso2)
+plot(lasso_mod2$finalModel, xvar = "lambda", label = TRUE, col = rainbow(20), ylim = c(-0.5,1))
+plot(lasso_mod2)
+```
+The top graph shows us the best amount of 'shrinkage' to apply to our model. If we don't shrink enough, we keep too much unnecessary information. If we shrink too much, we lose important details. There's a sweet spot where the error is the lowest, and that's where our model works best.
+The bottom graph shows how much each detail about the Airbnb (like type of room, location, etc.) influences the price. As we move to the right, we’re applying more 'shrinkage' to simplify the model. Some lines drop to the bottom, meaning those details aren’t really important for predicting the price. The lines that stay higher up for longer are the details that matter more.
+
+### 7.The CART model(non-linearity):
+
+```{r Cart model(non-lnearity), message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+#Classification and Regression Trees (CART)
+set.seed(123)
+Tree1.2 = rpart(price~property_type+
+                  room_type+
+                  ns(accommodates,3)+
+                  beds+
+                  guests_included+
+                  ns(minimum_nights,3)+
+                  availability_30+
+                  ns(bathrooms,3)+ns(bedrooms,3)+
+                  ns(review_scores_rating,3)+
+                  is_business_travel_ready+
+                  cancellation_policy+
+                  require_guest_profile_picture+
+                  ns(reviews_per_month,3)+
+                  neighbourhood_group,
+             data = airbnb_select_test, method = "anova")
+predicted_price_cart2 <- predict(Tree1.2, newdata = airbnb_select_test)
+# Plotting
+rpart.plot(Tree1.2, type = 4, extra = 1)
+ggplot() +
+  geom_point(aes(x = airbnb_select_test$price, y = predicted_price_cart), colour = "blue") +
+  geom_line(aes(x = airbnb_select_test$price, y = airbnb_select_test$price), colour = "red") +
+  labs(x = "Actual Price", y = "Predicted Price", title = "CART Model: Predicted vs Actual Price") +
+  theme_minimal()
+# Calculate RMSE
+non_na_indices <- !is.na(airbnb_select_test$price) & !is.na(predicted_price_cart2)
+rmse_cart2 <- rmse(airbnb_select_test$price[non_na_indices], predicted_price_cart2[non_na_indices])
+# Print RMSE
+cat("RMSE:", rmse_cart2, "\n")
+print (rmse_cart2)
+``` 
+
+The first graph compares what the model thought Airbnb prices would be versus what they actually were. The red line is where the model’s guess and the real price are the same. We can see a lot of dots along the line at the lower prices, which means the model did a pretty good job guessing cheaper places. But as the price goes up, the dots spread out, and the model starts to miss the mark, especially for the priciest places.
+The second image is a map that the model uses to guess Airbnb prices. It starts by looking at the type of room and then considers other things like the neighborhood, how many people the place fits, how many bathrooms there are, and how often it's been booked. Each box and branch is like a decision point, leading to what the model thinks the price should be.
+
+```{r, include=FALSE}
+coef(back_step_mod$finalModel, id = back_step_mod$bestTune$nvmax)
+coef(back_step_mod2$finalModel, id = back_step_mod2$bestTune$nvmax)
+coef(lasso_mod1$finalModel, lasso_mod1$bestTune$lambda)
+lasso_mod1$bestTune
+coef(lasso_mod2$finalModel,lasso_mod2$bestTune$lambda)
+lasso_mod2$bestTune
+airbnb_select <-airbnb_select%>%
+  mutate(room_type = str_replace(room_type,"/","_"))%>%
+  mutate(property_type=str_replace(property_type," ","_"))%>%
+  mutate(property_type=str_replace(property_type,"&","and"))%>%
+  mutate(room_type=str_replace(room_type," ","_"))
+gam_mod <- train(
+    price ~ property_type+room_type+accommodates+beds+availability_30+bathrooms+bedrooms+review_scores_rating+is_business_travel_ready+cancellation_policy+require_guest_profile_picture+reviews_per_month+neighbourhood_group,
+    data = airbnb_select,
+    method = "gamLoess",
+    tuneGrid = data.frame(degree = 1, span = seq(0.5, 0.9, by = 0.1)),
+    trControl = trainControl(method = "cv", number = 10, selectionFunction = "best"),
+    metric = "MAE",
+    na.action = na.omit
+)
+plot(gam_mod)
+
+gam_mod$bestTune
+gam_mod$results
+par(mfrow = c(3,3)) 
+plot(gam_mod$finalModel, se = TRUE)
+back_step_mod$results%>%arrange(MAE)
+back_step_mod2$results%>%arrange(MAE)
+lasso_mod1$results%>%arrange(MAE)
+lasso_mod2$results%>%arrange(MAE)
+airbnb_select2 <- airbnb %>%
+  select(price,property_type,room_type,accommodates,beds,guests_included,minimum_nights,availability_30,bathrooms,bedrooms,review_scores_rating,is_business_travel_ready,cancellation_policy,require_guest_profile_picture,reviews_per_month,neighbourhood_group)
+airbnb_select_noNA<-tidyr::drop_na(airbnb_select2)
+back_step_mod_out <- airbnb_select_noNA %>%
+    mutate(
+        fitted = predict(back_step_mod2, newdata = airbnb_select_noNA),
+        resid = price - fitted
+    )
+
+ggplot(back_step_mod_out, aes(x = beds, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(back_step_mod_out, aes(x = bathrooms, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(back_step_mod_out, aes(x = review_scores_rating, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(back_step_mod_out, aes(x = reviews_per_month, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(back_step_mod_out, aes(x = accommodates, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+lasso_model_out <- airbnb_select_noNA %>%
+    mutate(
+        fitted = predict(lasso_mod2, newdata = airbnb_select_noNA),
+        resid = price - fitted)
+
+ggplot(lasso_model_out, aes(x = beds, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(lasso_model_out, aes(x = bathrooms, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(lasso_model_out, aes(x = review_scores_rating, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(lasso_model_out, aes(x = reviews_per_month, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+ggplot(lasso_model_out, aes(x = accommodates, y = resid)) +
+    geom_point() +
+    geom_smooth() +
+    geom_hline(yintercept = 0, color = "red") +
+    theme_classic() +
+    labs(x = "Fitted values", y = "Residuals")
+
+coef(back_step_mod$finalModel, id = 5)
+
+coef(lasso_mod1$finalModel, 14)
+abnb<-airbnb_select%>%
+  filter(neighbourhood_group%in% c("Brooklyn","Manhattan","Queens"))
+```
+
+### 8. Random forest model
+
+```{r, include=FALSE}
+set.seed(253)
+rf_mod <- train(
+      neighbourhood_group ~ 
+      property_type+
+      price+
+      room_type+
+      accommodates+
+      beds+
+      guests_included+
+      minimum_nights+
+      availability_30+
+      bathrooms+
+      bedrooms+
+      review_scores_rating+
+      is_business_travel_ready+
+      require_guest_profile_picture+
+      reviews_per_month,
+    data = abnb,
+    method = "rf",
+    tuneGrid = data.frame(mtry = c(1,3,7,15)),
+    trControl = trainControl(method = "oob", selectionFunction = "best"),
+    metric = "Accuracy",
+    ntree = 1000, 
+    na.action = na.omit
+)
+```
+
+```{r, include=FALSE}
+tree_mod <- train(
+    neighbourhood_group ~ 
+      property_type+
+      price+
+      room_type+
+      accommodates+
+      beds+
+      guests_included+
+      minimum_nights+
+      availability_30+
+      bathrooms+
+      bedrooms+
+      review_scores_rating+
+      is_business_travel_ready+
+      require_guest_profile_picture+
+      reviews_per_month,
+    data = abnb,
+    method = "rpart",
+    tuneGrid = data.frame(cp = seq(0, 0.0042, length.out = 50)),
+    trControl = trainControl(method = "cv", number = 10, selectionFunction = "oneSE"),
+    metric = "Accuracy",
+    na.action = na.omit
+)
+
+```
+
+```{r, include=FALSE}
+var_imp_rf <- randomForest::importance(rf_mod$finalModel)
+
+var_imp_rf <- data.frame(
+        predictor = rownames(var_imp_rf),
+        MeanDecreaseGini = var_imp_rf[,"MeanDecreaseGini"]
+    ) %>%
+    arrange(desc(MeanDecreaseGini))
+
+# Top 20
+head(var_imp_rf, 20)
+```
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+plot(rf_mod)
+```
+
+```{r, include=FALSE}
+rf_mod$finalModel
+```
+
+```{r, include=FALSE}
+rf_mod$results
+```
+
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+#plot
+plot(tree_mod)
+```
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+ggplot(abnb, aes(x = neighbourhood_group, y = price)) +
+    geom_violin()
+ggplot(abnb, aes(x = neighbourhood_group, y = reviews_per_month)) +
+    geom_violin()
+ggplot(abnb, aes(x = neighbourhood_group, y = accommodates)) +
+    geom_violin()
+ggplot(abnb, aes(x = neighbourhood_group, y = availability_30)) +
+    geom_violin()
+ggplot(abnb, aes(x = neighbourhood_group, y = review_scores_rating)) +
+    geom_violin()
+```
+The first image shows a graph that tracks how well the model predicts Airbnb neighborhoods based on different numbers of predictors. The accuracy goes up quickly when we first add a few predictors, but after a certain point, adding more doesn't really help; it actually starts to drop off a bit. 
+In the second image, we've got a graph that's about finding the right level of complexity for the model. As the complexity increases, so does the accuracy—but only up to a point. After that, even if we keep making the model more complex, the accuracy doesn't really get better. 
+
+## Conclusion: 
+After comparing all the models, it turned out the random forest model turn out to be the most suitable model. Therandom forest model looks at the Airbnb data from every"angle. It doesn't just stick to one path;it takes a bunch of different routes, checks them out, and then puts all that info together to makea really.solidguess about prices.
+What really made the random forest stand out was its teamwork approach. It used lots of.predictors, but unlike other models that got confused with too much information, the randomforest kept its cool.'It got smarter as it went, learning which predictors were noisy and whichones actually mattered.
+So, when we·lined up all the models ·and checked which ·one was the sharpest model forpredicting Airbnb prices, the random forest model was the standout. It handled the twists and.turns better than models that worked alone, and it didn't get tripped up by the tricky parts of thedata.That's why it·came out on top, making it the MVP ofour modeling bunches.
+
